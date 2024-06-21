@@ -25,9 +25,8 @@ ExternalProject_Add(
         ${EP_SLIC3R}
 
         PREFIX ${EP_SLIC3R}
-        #GIT_REPOSITORY https://github.com/ClemensElflein/Slic3r
+        GIT_REPOSITORY https://github.com/ClemensElflein/Slic3r
         #GIT_REPOSITORY git@github.com:ClemensElflein/Slic3r.git
-        GIT_REPOSITORY git://github.com/ClemensElflein/Slic3r.git
         GIT_TAG 026c1380e0ad12176dd2fc8cdf8f6f181deeb071
         GIT_SHALLOW ON
         GIT_PROGRESS ON
