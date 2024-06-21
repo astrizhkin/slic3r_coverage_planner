@@ -29,6 +29,7 @@ ExternalProject_Add(
         GIT_TAG 026c1380e0ad12176dd2fc8cdf8f6f181deeb071
         GIT_SHALLOW ON
         GIT_PROGRESS ON
+        GIT_CONFIG http.postBuffer=524288000
 
         BUILD_ALWAYS OFF
 
