@@ -29,7 +29,8 @@ ExternalProject_Add(
         GIT_TAG 026c1380e0ad12176dd2fc8cdf8f6f181deeb071
         GIT_SHALLOW ON
         GIT_PROGRESS ON
-        GIT_CONFIG http.postBuffer=524288000
+        GIT_CONFIG core.compression=0
+#        GIT_CONFIG http.postBuffer=1024M http.maxRequestBuffer=1024M core.compression=9 ssh.postBuffer=2048M ssh.maxRequestBuffer=1024M pack.windowMemory=256m pack.packSizeLimit=256m
 
         BUILD_ALWAYS OFF
 
