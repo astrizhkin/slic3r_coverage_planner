@@ -27,7 +27,8 @@ ExternalProject_Add(
         PREFIX ${EP_SLIC3R}
         GIT_REPOSITORY https://github.com/ClemensElflein/Slic3r
         GIT_TAG 026c1380e0ad12176dd2fc8cdf8f6f181deeb071
-        GIT_SHALLOW OFF
+        GIT_SHALLOW ON
+        GIT_PROGRESS ON
 
         BUILD_ALWAYS OFF
 
