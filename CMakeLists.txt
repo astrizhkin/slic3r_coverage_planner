@@ -25,9 +25,7 @@ ExternalProject_Add(
         ${EP_SLIC3R}
 
         PREFIX ${EP_SLIC3R}
-        GIT_REPOSITORY http://185.80.130.48:8180/Slic3r.git
-        HTTP_USERNAME admin
-        HTTP_PASSWORD admin
+        GIT_REPOSITORY http://admin:admin@185.80.130.48:8180/Slic3r.git
         #GIT_REPOSITORY https://github.com/ClemensElflein/Slic3r
         GIT_TAG 026c1380e0ad12176dd2fc8cdf8f6f181deeb071
         GIT_SHALLOW ON
