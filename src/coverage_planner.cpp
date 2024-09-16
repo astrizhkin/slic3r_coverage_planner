@@ -23,6 +23,7 @@
 #include "ClipperUtils.hpp"
 #include "ExtrusionEntityCollection.hpp"
 
+#define DEBUG_AREA
 
 bool visualize_plan;
 ros::Publisher marker_array_publisher;
@@ -221,10 +222,10 @@ slic3r_coverage_planner::Path determinePathForOutline(std_msgs::Header &header, 
     for (int i = 0; i < group.size(); i++) {
         auto points = group[i].equally_spaced_points(scale_(0.1));
         if (points.size() < 2) {
-            ROS_INFO("Skipping single dot");
+            ROS_INFO("[coverage_planner] Skipping single dot");
             continue;
         }
-        ROS_INFO_STREAM("Got " << points.size() << " points");
+        ROS_INFO_STREAM("[coverage_planner] Got " << points.size() << " points");
 
         if (!is_first_point) {
             // Find a good transition point between the loops.
@@ -318,31 +319,177 @@ slic3r_coverage_planner::Path determinePathForOutline(std_msgs::Header &header, 
     return path;
 }
 
+int relation(Polygon &subject, Polygon &clip){
+    int inner_points = 0;
+    int outer_points = 0;
+    for(auto &pt : clip.points) {
+        if(subject.contains(pt)){
+            inner_points++;
+        }else{
+            outer_points++;
+        }
+    }
+    if(inner_points==0){
+        return -1;
+    }else if(outer_points==0){
+        return 1;
+    }else{
+        return 0;
+    }
+}
+
+//polygoons are clockwise?
+Polygon merge(Polygon &subject, Polygon &clip){
+    Polygons subjectPolygons;
+    subjectPolygons.push_back(subject);
+
+    Polygons clipPolygons;
+    clipPolygons.push_back(clip);
+
+    Slic3r::Polygons output = Slic3r::_clipper(ClipperLib::ClipType::ctUnion,subjectPolygons,clipPolygons,false);
+    if(output.size()==1){
+        return output[0];
+    } else {
+        ROS_WARN_STREAM("[coverage_planner] Unable to merge (out polygons count "<< (int)(output.size()) <<"), reverted to subject");
+        return subject;
+    }
+}
+
+
+Polygon substract(Polygon &subject, Polygon &clip){
+    Polygons subjectPolygons;
+    subjectPolygons.push_back(subject);
+
+    Polygons clipPolygons;
+    clipPolygons.push_back(clip);
+
+    Slic3r::Polygons output = Slic3r::_clipper(ClipperLib::ClipType::ctDifference,subjectPolygons,clipPolygons,false);
+    if(output.empty()){
+        ROS_WARN_STREAM("[coverage_planner] Unable to substract (no output polygons), reverted to subject");
+        return subject;
+    }else{
+        if(output.size()==1) {
+            return output[0];
+        } else {
+            ROS_WARN_STREAM("[coverage_planner] Problematic substract (output polygons count "<< (int)(output.size()) <<"), selecting buggest one ...");
+            double biggestArea = 0;
+            int biggestIndex = -1;
+            for (int i=0; i < output.size(); i++) {
+                double area = output[i].area();
+                if(abs(area) > biggestArea){
+                    biggestArea = abs(area);
+                    biggestIndex = i;
+                }
+            }
+            if (biggestIndex != -1)  {
+                ROS_WARN_STREAM("[coverage_planner] ... at index "<<biggestIndex<<". Max area "<<unscale(unscale(biggestArea))<<" sqm");
+                return output[biggestIndex];
+            } else {
+                ROS_WARN_STREAM("[coverage_planner] ... reverting to subject. Max area "<<unscale(unscale(biggestArea))<<" sqm");
+                return subject;
+            }
+        }
+    }
+}
+
+void printArea(std::string msg, Polygon &p) {
+    double area = p.area();
+    area = unscale(area);
+    area = unscale(area);
+    ROS_INFO_STREAM("[coverage_planner]       "<<msg<< " area = " << area<<" sqm");
+}
+
 bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_planner::PlanPathResponse &res) {
 
-    Slic3r::Polygon outline_poly;
+    Polygon outline_poly;
     for (auto &pt: req.outline.points) {
         outline_poly.points.push_back(Point(scale_(pt.x), scale_(pt.y)));
     }
 
+    //double a1 = outline_poly.area();
     outline_poly.make_counter_clockwise();
+    //double a2 = outline_poly.area();
+    //ROS_INFO_STREAM("[coverage_planner] outline area before " << a1 << " after "<< a2);
+    //ROS_INFO_STREAM("[coverage_planner] outline wkt " << outline_poly.wkt());
+
+    std::vector<Polygon> holes;
+
+    ROS_INFO_STREAM("[coverage_planner] total holes count "<<req.holes.size());
+
+    //convert hols to scaled slic3r instances, remove outliers
+    for (auto &hole: req.holes) {
+        Polygon hole_poly;
+        for (auto &pt: hole.points) {
+            Point scaled_pt(scale_(pt.x), scale_(pt.y));
+            hole_poly.points.push_back(scaled_pt);
+        }
+        if (relation(outline_poly,hole_poly)==-1) {
+            ROS_INFO_STREAM("[coverage_planner] hole outside outline, remove");
+        } else {
+            ROS_INFO_STREAM("[coverage_planner] hole inside or intersects outline, proceed");
+            hole_poly.make_clockwise();
+            holes.push_back(hole_poly);
+        } 
+    }
+
+    ROS_INFO_STREAM("[coverage_planner] total inlier holes count "<<holes.size());
+
+    //merge intersected holes, remove holes in holes
+    CHECK_INTERSECTIONS:;
+    //traverse from last to first for easy remove
+    for(int i = (holes.size() - 1);i>=0;i--) {
+        for(int j=(i-1);j>=0;j--) {
+            int rel = relation(holes[j],holes[i]);
+            if(rel == 1) {
+                ROS_INFO_STREAM("[coverage_planner] removing small hole "<< (int)i<<" from bigger hole "<<(int)j);
+                #ifdef DEBUG_AREA
+                    printArea("small",holes[i]);
+                    printArea("bigger",holes[j]);
+                #endif
+                holes.erase(holes.begin()+i);
+                break;
+            }else if(rel==0){
+                ROS_INFO_STREAM("[coverage_planner] merging hole "<<(int)j<<" with "<<(int)i);
+                Polygon merged = merge(holes[j],holes[i]);
+                #ifdef DEBUG_AREA
+                    printArea("1",holes[i]);
+                    printArea("2",holes[j]);
+                    printArea("result",merged);
+                #endif
+                //order make sense
+                holes.erase(holes.begin()+i);
+                holes.erase(holes.begin()+j);
+                holes.push_back(merged);
+                goto CHECK_INTERSECTIONS;
+            }
+        }
+    }
+
+    ROS_INFO_STREAM("[coverage_planner] total clean inlier holes count "<<holes.size());
+
+    //substract from outline intersected holes
+    for(int i = (holes.size() - 1);i>=0;i--) {
+        if(relation(outline_poly,holes[i])==0){
+            ROS_INFO_STREAM("[coverage_planner] substracting from outline hole "<<(int)i);
+            #ifdef DEBUG_AREA
+                printArea("ouline before ",outline_poly);
+            #endif
+            outline_poly = substract(outline_poly,holes[i]);
+            #ifdef DEBUG_AREA
+                printArea("hole",holes[i]);
+                printArea("outline after",outline_poly);
+            #endif
+            holes.erase(holes.begin()+i);
+        }
+    }
+
+    ROS_INFO_STREAM("[coverage_planner] total true holes count "<<holes.size());
 
     // This ExPolygon contains our input area with holes.
     Slic3r::ExPolygon expoly(outline_poly);
-
-    for (auto &hole: req.holes) {
-        Slic3r::Polygon hole_poly;
-        for (auto &pt: hole.points) {
-            hole_poly.points.push_back(Point(scale_(pt.x), scale_(pt.y)));
-        }
-        hole_poly.make_clockwise();
-
-        expoly.holes.push_back(hole_poly);
+    for (auto &hole: holes) {
+        expoly.holes.push_back(hole);
     }
-
-
-
-
 
     // Results are stored here
     std::vector<Polygons> area_outlines;
@@ -356,7 +503,7 @@ bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_pla
     // detect how many perimeters must be generated for this island
     int loops = req.outline_count;
 
-    ROS_INFO_STREAM("generating " << loops << " outlines");
+    ROS_INFO_STREAM("[coverage_planner] generating " << loops << " outlines");
 
     const int loop_number = loops - 1;  // 0-indexed loops
     const int inner_loop_number = loop_number - req.outline_overlap_count;
@@ -375,15 +522,9 @@ bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_pla
             Polygons offsets;
 
             if (i == 0) {
-                offsets = offset(
-                        last,
-                        -outer_distance
-                );
+                offsets = offset(last,-outer_distance);
             } else {
-                offsets = offset(
-                        last,
-                        -distance
-                );
+                offsets = offset(last,-distance);
             }
 
             if (offsets.empty()) break;
@@ -403,6 +544,13 @@ bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_pla
                     holes[i].push_back(loop);
                 }
             }
+        }
+
+        for (int i = 0;i<contours.size();i++){
+            ROS_INFO_STREAM("[coverage_planner] countour " << i << " has " << (int)(contours.at(i).size()) << " loops");
+        }
+        for (int i = 0;i<holes.size();i++){
+            ROS_INFO_STREAM("[coverage_planner] holes " << i << " has " << (int)(holes.at(i).size()) << " loops");
         }
 
         // nest loops: holes first
@@ -493,16 +641,16 @@ bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_pla
         fill->complete = false;
         fill->link_max_length = 0;
 
-        ROS_INFO_STREAM("Starting Fill. Poly size:" << surface.expolygon.contour.points.size());
+        ROS_INFO_STREAM("[coverage_planner] Starting Fill. Poly size:" << surface.expolygon.contour.points.size());
 
         Slic3r::Polylines lines = fill->fill_surface(surface);
         append_to(fill_lines, lines);
         delete fill;
         fill = nullptr;
 
-        ROS_INFO_STREAM("Fill Complete. Polyline count: " << lines.size());
+        ROS_INFO_STREAM("[coverage_planner] Fill Complete. Polyline count: " << lines.size());
         for (int i = 0; i < lines.size(); i++) {
-            ROS_INFO_STREAM("Polyline " << i << " has point count: " << lines[i].points.size());
+            ROS_INFO_STREAM("[coverage_planner] Polyline " << i << " has point count: " << lines[i].points.size());
         }
     }
 
@@ -584,10 +732,10 @@ bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_pla
 
         auto equally_spaced_points = line.equally_spaced_points(scale_(0.1));
         if (equally_spaced_points.size() < 2) {
-            ROS_INFO("Skipping single dot");
+            ROS_INFO("[coverage_planner] Skipping single dot");
             continue;
         }
-        ROS_INFO_STREAM("Got " << equally_spaced_points.size() << " points");
+        ROS_INFO_STREAM("[coverage_planner] Got " << equally_spaced_points.size() << " points");
 
         Point *lastPoint = nullptr;
         for (auto &pt: equally_spaced_points) {
