@@ -400,6 +400,7 @@ void printArea(std::string msg, Polygon &p) {
 }
 
 bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_planner::PlanPathResponse &res) {
+    ROS_INFO_STREAM("[coverage_planner] Got plan path request");
 
     Polygon outline_poly;
     for (auto &pt: req.outline.points) {
@@ -408,6 +409,7 @@ bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_pla
 
     //double a1 = outline_poly.area();
     outline_poly.make_counter_clockwise();
+    
     //double a2 = outline_poly.area();
     //ROS_INFO_STREAM("[coverage_planner] outline area before " << a1 << " after "<< a2);
     //ROS_INFO_STREAM("[coverage_planner] outline wkt " << outline_poly.wkt());
