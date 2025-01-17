@@ -382,10 +382,10 @@ Polygon substract(Polygon &subject, Polygon &clip){
                 }
             }
             if (biggestIndex != -1)  {
-                ROS_WARN_STREAM("[coverage_planner] ... at index "<<biggestIndex<<". Max area "<<unscale(unscale(biggestArea))<<" sqm");
+                ROS_WARN_STREAM("[coverage_planner] ... at index "<<biggestIndex<<". Max area "<<unscale(unscale(biggestArea))<<" m2");
                 return output[biggestIndex];
             } else {
-                ROS_WARN_STREAM("[coverage_planner] ... reverting to subject. Max area "<<unscale(unscale(biggestArea))<<" sqm");
+                ROS_WARN_STREAM("[coverage_planner] ... reverting to subject. Max area "<<unscale(unscale(biggestArea))<<" m2");
                 return subject;
             }
         }
@@ -396,11 +396,12 @@ void printArea(std::string msg, Polygon &p) {
     double area = p.area();
     area = unscale(area);
     area = unscale(area);
-    ROS_INFO_STREAM("[coverage_planner]       "<<msg<< " area = " << area<<" sqm");
+    ROS_INFO_STREAM("[coverage_planner]       "<<msg<< " area = " << area<<" m2");
 }
 
 bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_planner::PlanPathResponse &res) {
     ROS_INFO_STREAM("[coverage_planner] Got plan path request");
+    ros::Time t1 = ros::Time::now();
 
     Polygon outline_poly;
     for (auto &pt: req.outline.points) {
@@ -790,7 +791,8 @@ bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_pla
         marker_array_publisher.publish(arr);
     }
 
-
+    ros::Time t2 = ros::Time::now();
+    ROS_INFO_STREAM("[coverage_planner] plan path fishished in " << (t2-t1).toSec()<< " s");
     return true;
 }
 
