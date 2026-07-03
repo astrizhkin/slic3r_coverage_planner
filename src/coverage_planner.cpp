@@ -511,7 +511,7 @@ bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_pla
     coord_t outer_distance = scale_(req.outer_offset);
 
     // detect how many perimeters must be generated for this island
-    int loops = req.outline_count;
+    int loops = req.perimeter_only ? 1 : req.outline_count;
 
     if (!req.silent) ROS_INFO_STREAM("[coverage_planner] generating " << loops << " outlines");
 
@@ -631,43 +631,46 @@ bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_pla
     ExPolygons expp = union_ex(inner);
 
 
-    // Go through the innermost poly and create the fill path using a Fill object
-    for (auto &poly: expp) {
-        Slic3r::Surface surface(Slic3r::SurfaceType::stBottom, poly);
+    
+    // skip fill if perimeter only
+    if(!req.perimeter_only) {
+        // Go through the innermost poly and create the fill path using a Fill object
+        for (auto &poly: expp) {
+            Slic3r::Surface surface(Slic3r::SurfaceType::stBottom, poly);
 
 
-        Slic3r::Fill *fill;
-        if (req.fill_type == slic3r_coverage_planner::PlanPathRequest::FILL_LINEAR) {
-            fill = new Slic3r::FillRectilinear();
-        } else {
-            fill = new Slic3r::FillConcentric();
-        }
-        fill->link_max_length = scale_(1.0);
-        fill->angle = req.angle;
-        fill->z = scale_(1.0);
-        fill->endpoints_overlap = 0;
-        fill->density = 1.0;
-        fill->dont_connect = false;
-        fill->dont_adjust = false;
-        fill->min_spacing = req.distance;
-        fill->complete = false;
-        fill->link_max_length = 0;
+            Slic3r::Fill *fill;
+            if (req.fill_type == slic3r_coverage_planner::PlanPathRequest::FILL_LINEAR) {
+                fill = new Slic3r::FillRectilinear();
+            } else {
+                fill = new Slic3r::FillConcentric();
+            }
+            fill->link_max_length = scale_(1.0);
+            fill->angle = req.angle;
+            fill->z = scale_(1.0);
+            fill->endpoints_overlap = 0;
+            fill->density = 1.0;
+            fill->dont_connect = false;
+            fill->dont_adjust = false;
+            fill->min_spacing = req.distance;
+            fill->complete = false;
+            fill->link_max_length = 0;
 
-        if (!req.silent) ROS_INFO_STREAM("[coverage_planner] Starting Fill. Poly size:" << surface.expolygon.contour.points.size());
+            if (!req.silent) ROS_INFO_STREAM("[coverage_planner] Starting Fill. Poly size:" << surface.expolygon.contour.points.size());
 
-        Slic3r::Polylines lines = fill->fill_surface(surface);
-        append_to(fill_lines, lines);
-        delete fill;
-        fill = nullptr;
+            Slic3r::Polylines lines = fill->fill_surface(surface);
+            append_to(fill_lines, lines);
+            delete fill;
+            fill = nullptr;
 
-        if (!req.silent) {
-            ROS_INFO_STREAM("[coverage_planner] Fill Complete. Polyline count: " << lines.size());
-            for (int i = 0; i < lines.size(); i++) {
-                ROS_INFO_STREAM("[coverage_planner] Polyline " << i << " has point count: " << lines[i].points.size());
+            if (!req.silent) {
+                ROS_INFO_STREAM("[coverage_planner] Fill Complete. Polyline count: " << lines.size());
+                for (int i = 0; i < lines.size(); i++) {
+                    ROS_INFO_STREAM("[coverage_planner] Polyline " << i << " has point count: " << lines[i].points.size());
+                }
             }
         }
     }
-
 
     std_msgs::Header header;
     header.stamp = ros::Time::now();
